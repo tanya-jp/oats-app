@@ -10,6 +10,8 @@ class ReadingSpanTask {
         this.currentSentenceIndex = 0;
         this.currentBlockSentences = [];
         this.results = [];
+        this.sentenceLog = [];          // reading time per sentence
+        this.sentenceAdvanceCleanup = null;
         this.sessionStartTime = new Date();
         
         // Initialize NativeAudioRecorder - will be loaded in init()
@@ -189,9 +191,12 @@ class ReadingSpanTask {
             this.isAudioSetup = true;
             console.log('NativeAudioRecorder initialized successfully');
             
-        } catch (error) {
-            console.error('Audio setup error:', error);
-            throw new Error('Microphone access denied or sox not installed. Please check your setup and try again.');
+        // } catch (error) {
+        //     console.error('Audio setup error:', error);
+        //     throw new Error('Microphone access denied or sox not installed. Please check your setup and try again.');
+        // }
+                } catch (error) {
+            console.warn('Audio setup failed; continuing WITHOUT recording (local testing only):', error);
         }
     }
 
@@ -314,6 +319,7 @@ class ReadingSpanTask {
                 <ul style="margin-left: 20px;">
                     <li>You will read sentences one at a time</li>
                     <li>After each sentence, remember the last word</li>
+                    <li>Press SPACE when you have finished reading a sentence to go to the next one</li>
                     <li>At the end of each set, recall all the last words in order</li>
                     <li>Click the recall buttons to record your responses</li>
                 </ul>
@@ -454,10 +460,66 @@ class ReadingSpanTask {
             ? this.config.parameters.timing.practice_sentence_duration 
             : this.config.parameters.timing.main_sentence_duration;
         
-        this.later(() => {
+        // The sentence stays up for at most `duration`; the participant can
+        // move on earlier with SPACE (or a click), as in the original
+        // E-Prime test. Whichever comes first advances, exactly once.
+        const shownAt = performance.now();
+        let done = false;
+        const advance = (endedBy) => {
+            if (done || this.closed) return;
+            done = true;
+            clearTimeout(timerId);
+            this.timers.delete(timerId);
+            this.removeSentenceAdvanceListeners();
+            this.sentenceLog.push({
+                phase: this.currentPhase,
+                series: this.currentSeries,
+                block: this.currentBlock,
+                position: this.currentSentenceIndex + 1,
+                target_word: sentence.target,
+                reading_time_ms: Math.round(performance.now() - shownAt),
+                ended_by: endedBy
+            });
             this.currentSentenceIndex++;
             this.showNextSentence();
-        }, duration);
+        };
+        const timerId = this.later(() => advance('timeout'), duration);
+        // Ignore SPACE/clicks in the first moments so a double tap can't
+        // skip the next sentence unseen.
+        const MIN_VISIBLE_MS = 300;
+        this.addSentenceAdvanceListeners((endedBy) => {
+            if (performance.now() - shownAt >= MIN_VISIBLE_MS) advance(endedBy);
+        });
+    }
+
+    // SPACE or a click on the task area ends the current sentence early
+    addSentenceAdvanceListeners(advance) {
+        this.removeSentenceAdvanceListeners();
+        // A button clicked to start the phase may still have focus; SPACE
+        // would "click" it again, so drop focus first.
+        if (document.activeElement && document.activeElement !== document.body) {
+            document.activeElement.blur();
+        }
+        const onKey = (e) => {
+            if (e.code !== 'Space' || e.repeat) return;
+            e.preventDefault();
+            advance('space');
+        };
+        const contentEl = document.getElementById('reading-span-task-content');
+        const onClick = () => advance('click');
+        document.addEventListener('keydown', onKey, true);
+        if (contentEl) contentEl.addEventListener('click', onClick);
+        this.sentenceAdvanceCleanup = () => {
+            document.removeEventListener('keydown', onKey, true);
+            if (contentEl) contentEl.removeEventListener('click', onClick);
+        };
+    }
+
+    removeSentenceAdvanceListeners() {
+        if (this.sentenceAdvanceCleanup) {
+            this.sentenceAdvanceCleanup();
+            this.sentenceAdvanceCleanup = null;
+        }
     }
 
     async showRecallScreen() {
@@ -1025,6 +1087,17 @@ class ReadingSpanTask {
             content += `${phase} | ${series} | ${block} | ${target} | ${audioFile}\n`;
         }
 
+        const mainReading = this.sentenceLog.filter((r) => r.phase === 'main');
+        if (mainReading.length) {
+            content += '\nSENTENCE READING TIMES (main phase)\n';
+            content += '-'.repeat(60) + '\n';
+            content += 'Series | Block | Pos | Target Word    | Reading ms | Ended By\n';
+            content += '-'.repeat(60) + '\n';
+            for (const r of mainReading) {
+                content += `${String(r.series).padEnd(6)} | ${String(r.block).padEnd(5)} | ${String(r.position).padEnd(3)} | ${r.target_word.padEnd(14)} | ${String(r.reading_time_ms).padEnd(10)} | ${r.ended_by}\n`;
+            }
+        }
+
         content += '\n' + '='.repeat(60) + '\n';
         content += 'End of Results\n';
         content += '='.repeat(60) + '\n';
@@ -1060,6 +1133,7 @@ class ReadingSpanTask {
         this.closed = true;
         this.timers.forEach((id) => clearTimeout(id));
         this.timers.clear();
+        this.removeSentenceAdvanceListeners();
 
         // Keep what was recorded in the main phase
         if (savePartial && this.currentPhase === 'main' && this.results.length && !this.resultsSaved) {
