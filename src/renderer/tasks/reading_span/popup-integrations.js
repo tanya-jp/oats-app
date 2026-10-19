@@ -314,12 +314,14 @@ class ReadingSpanTask {
             ">
                 <p><strong>Instructions:</strong></p>
                 <ul style="margin-left: 20px;">
-                    <li>You will read sentences one at a time</li>
-                    <li>After each sentence, remember the last word</li>
-                    <li>Press SPACE when you have finished reading a sentence to go to the next one</li>
-                    <li>At the end of each set, recall all the last words in order</li>
-                    <li>Click the recall buttons to record your responses, and click again when you are done</li>
+                    <li>Sentences will appear on the screen one at a time. Read each sentence aloud.</li>
+                    <li>After reading a sentence, press the SPACE BAR and the next sentence will appear.</li>
+                    <li>After a different number of sentences (2, 3, 4, 5 or 6), the word "Recall" will appear on the screen.</li>
+                    <li>When you see "Recall", say the last word of every sentence you have just read. You can say the words in any order.</li>
+                    <li>Click a recall button before saying each word, and click it again when you are done.</li>
+                    <li>Try to read the sentences as fast as possible while reading for content.</li>
                 </ul>
+                <p style="margin-top: 12px;">We will start with a few practice trials.</p>
                 
                 <p style="margin-top: 20px;"><strong>Audio Recording:</strong></p>
                 <ul style="margin-left: 20px;">
@@ -547,7 +549,7 @@ class ReadingSpanTask {
                 font-weight: 600;
                 color: #212529;
                 margin-bottom: 24px;
-            ">Recall the final words in order</h3>
+            ">Recall</h3>
             
             <div style="
                 font-size: 14px;
@@ -555,8 +557,8 @@ class ReadingSpanTask {
                 margin-bottom: 24px;
             ">
                 ${this.currentPhase === 'practice' 
-                    ? 'Click each button to practice recall (no recording); click it again when you are done'
-                    : `Click each button to record your recall (up to ${this.config.parameters.timing.recall_time_duration / 1000}s each); click it again when you are done`
+                    ? 'Say the last word of each sentence you just read, in any order. Click a button before each word and again when you are done (practice: nothing is recorded).'
+                    : `Say the last word of each sentence you just read, in any order. Click a button before each word (up to ${this.config.parameters.timing.recall_time_duration / 1000}s each) and again when you are done.`
                 }
             </div>
             
@@ -960,8 +962,11 @@ class ReadingSpanTask {
                 margin-bottom: 32px;
                 max-width: 600px;
             ">
-                Practice phase completed! Now you'll begin the main task with the same rules.
-                Remember to say the final word of each sentence when prompted.
+                The main task works the same way: read each sentence aloud, press the SPACE BAR
+                for the next one, and when "Recall" appears, say the last word of every sentence
+                you have just read, in any order.
+                <br><br>
+                If you have any questions about the task, please ask the experimenter now.
             </div>
             
             <button onclick="window.readingSpanTaskInstance.startMain()" style="
