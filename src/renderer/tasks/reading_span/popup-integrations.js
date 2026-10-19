@@ -191,12 +191,9 @@ class ReadingSpanTask {
             this.isAudioSetup = true;
             console.log('NativeAudioRecorder initialized successfully');
             
-        // } catch (error) {
-        //     console.error('Audio setup error:', error);
-        //     throw new Error('Microphone access denied or sox not installed. Please check your setup and try again.');
-        // }
-                } catch (error) {
-            console.warn('Audio setup failed; continuing WITHOUT recording (local testing only):', error);
+        } catch (error) {
+            console.error('Audio setup error:', error);
+            throw new Error('Microphone access denied or sox not installed. Please check your setup and try again.');
         }
     }
 
@@ -321,7 +318,7 @@ class ReadingSpanTask {
                     <li>After each sentence, remember the last word</li>
                     <li>Press SPACE when you have finished reading a sentence to go to the next one</li>
                     <li>At the end of each set, recall all the last words in order</li>
-                    <li>Click the recall buttons to record your responses</li>
+                    <li>Click the recall buttons to record your responses, and click again when you are done</li>
                 </ul>
                 
                 <p style="margin-top: 20px;"><strong>Audio Recording:</strong></p>
@@ -558,8 +555,8 @@ class ReadingSpanTask {
                 margin-bottom: 24px;
             ">
                 ${this.currentPhase === 'practice' 
-                    ? 'Click each button to practice recall (no recording)' 
-                    : `Click each button to record your recall (${this.config.parameters.timing.recall_time_duration / 1000}s each)`
+                    ? 'Click each button to practice recall (no recording); click it again when you are done'
+                    : `Click each button to record your recall (up to ${this.config.parameters.timing.recall_time_duration / 1000}s each); click it again when you are done`
                 }
             </div>
             
@@ -630,7 +627,7 @@ class ReadingSpanTask {
             // Update timer display to show ready state
             const timerDisplay = document.getElementById('recall-timer-display');
             if (timerDisplay) {
-                timerDisplay.innerHTML = 'Click a recall button to start recording';
+                timerDisplay.innerHTML = 'Click a recall button to start recording, and again when you are done';
             }
         }
                 
@@ -650,10 +647,16 @@ class ReadingSpanTask {
         const targetWord = button.dataset.target;
         const isMainPhase = this.currentPhase === 'main';
         
-        // Prevent clicking if already recording or completed
-        if (button.classList.contains('recording') || button.disabled) {
+        // Clicking the active button again ends this recall early
+        if (button.classList.contains('recording')) {
+            this.finishIndividualRecording(button, targetWord, isMainPhase, index, 'stopped');
             return;
         }
+        // Ignore completed buttons, and clicks while this one is starting
+        if (button.disabled || button.dataset.starting) {
+            return;
+        }
+        button.dataset.starting = '1';
         
         // Disable other buttons while this one is active
         document.querySelectorAll('.recall-button').forEach(btn => {
@@ -666,16 +669,19 @@ class ReadingSpanTask {
         
         // *** ONLY start recording for MAIN phase ***
         if (isMainPhase) {
-            await this.startRecording(targetWord, true);
+            button.resultEntry = await this.startRecording(targetWord, true);
+            if (this.closed) return;
             button.classList.add('recording');
-            button.innerHTML = `<span style="font-size: 16px;">🔴</span> Recording ${index + 1}...`;
+            button.innerHTML = `<span style="font-size: 16px;">⏹</span> Done ${index + 1}`;
             button.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
         } else {
             // Practice phase - just show active state without recording
             button.classList.add('recording');
-            button.innerHTML = `<span style="font-size: 16px;">✓</span> Practicing ${index + 1}...`;
+            button.innerHTML = `<span style="font-size: 16px;">⏹</span> Done ${index + 1}`;
             button.style.background = 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)';
         }
+        button.recallStartedAt = performance.now();
+        delete button.dataset.starting;
         
         // Start individual countdown for this button
         const duration = this.config.parameters.timing.recall_time_duration;
@@ -694,6 +700,7 @@ class ReadingSpanTask {
                     <span style="font-size: 18px; font-weight: 700; color: #dc3545; margin-left: 8px;">
                         ${remaining}s
                     </span>
+                    <span style="color: #6c757d; margin-left: 12px;">(click Done ${index + 1} when finished)</span>
                 `;
                 
                 if (remaining <= 5) {
@@ -712,7 +719,7 @@ class ReadingSpanTask {
 
             if (remaining <= 0) {
                 clearInterval(interval);
-                this.finishIndividualRecording(button, targetWord, isMainPhase, index);
+                this.finishIndividualRecording(button, targetWord, isMainPhase, index, 'timeout');
             }
         }, 1000);
         
@@ -720,9 +727,32 @@ class ReadingSpanTask {
         button.recordingInterval = interval;
     }
 
-    async finishIndividualRecording(button, targetWord, isMainPhase, index) {
-        // Stop recording
+    async finishIndividualRecording(button, targetWord, isMainPhase, index, endedBy = 'timeout') {
+        // Runs once per button, whether the time ran out or Done was clicked
+        if (button.dataset.finishing) return;
+        button.dataset.finishing = '1';
+
+        // Stop the countdown right away so it can't fire during the stop
+        if (button.recordingInterval) {
+            clearInterval(button.recordingInterval);
+            delete button.recordingInterval;
+        }
+
+        const recallMs = button.recallStartedAt != null
+            ? Math.round(performance.now() - button.recallStartedAt)
+            : null;
+
+        // Stop recording (early if Done was clicked)
+        if (isMainPhase && endedBy === 'stopped') {
+            await this.audioRecorder.stopEarly();
+        }
         await this.stopRecording();
+        if (this.closed) return;
+
+        if (button.resultEntry) {
+            button.resultEntry.recall_duration_ms = recallMs;
+            button.resultEntry.ended_by = endedBy;
+        }
         
         // Update button appearance
         button.classList.remove('recording');
@@ -810,14 +840,16 @@ class ReadingSpanTask {
             
             // Store result info for later
             if (saveToFile && this.currentPhase === 'main') {
-                this.results.push({
+                const entry = {
                     phase: this.currentPhase,
                     series: this.currentSeries,
                     block: this.currentBlock,
                     target_word: targetWord,
                     audio_file: filename,
                     timestamp: new Date().toISOString()
-                });
+                };
+                this.results.push(entry);
+                return entry;
             }
             
         } catch (error) {
@@ -1074,7 +1106,7 @@ class ReadingSpanTask {
 
         content += 'DETAILED RESULTS\n';
         content += '-'.repeat(60) + '\n';
-        content += 'Phase     | Series | Block | Target Word    | Audio File\n';
+        content += 'Phase     | Series | Block | Target Word    | Recall ms | Ended By | Audio File\n';
         content += '-'.repeat(60) + '\n';
 
         for (const result of this.results) {
@@ -1083,8 +1115,10 @@ class ReadingSpanTask {
             const block = result.block.toString().padEnd(5);
             const target = result.target_word.padEnd(14);
             const audioFile = result.audio_file || 'N/A';
+            const recallMs = String(result.recall_duration_ms ?? 'N/A').padEnd(9);
+            const endedBy = String(result.ended_by ?? 'N/A').padEnd(8);
 
-            content += `${phase} | ${series} | ${block} | ${target} | ${audioFile}\n`;
+            content += `${phase} | ${series} | ${block} | ${target} | ${recallMs} | ${endedBy} | ${audioFile}\n`;
         }
 
         const mainReading = this.sentenceLog.filter((r) => r.phase === 'main');
