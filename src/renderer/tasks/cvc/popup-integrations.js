@@ -373,17 +373,18 @@ class CVCTask {
             return;
         }
 
-        // Hardcoded practice sequence: M-U-D (3 real words)
+        // Hardcoded practice sequence: M-U-D (2 real words)
         const practiceSequence = [
-            { letter: 'M', flag: 0 },   // M
-            { letter: 'U', flag: 0 },   // U  
-            { letter: 'D', flag: -1 },  // D (completes MUD)
-            { letter: 'P', flag: 0 },   // P
-            { letter: 'E', flag: 0 },   // E
-            { letter: 'N', flag: -1 },  // N (completes PEN)
-            { letter: 'C', flag: 0 },   // C
-            { letter: 'A', flag: 0 },   // A
-            { letter: 'T', flag: -1 }   // T (completes CAT)
+            { letter: 'G', flag: 0 },       // G
+            { letter: 'I', flag: 0 },       // I
+            { letter: 'D', flag: 0 },       // D
+            { letter: 'O', flag: 0 },       // O
+            { letter: 'T', flag: -1 },      // T (completes DOT)
+            { letter: 'E', flag: 0 },       // E
+            { letter: 'G', flag: 0 },       // G
+            { letter: 'A', flag: 0 },       // A
+            { letter: 'P', flag: -1 },      // P (completes GAP)
+            { letter: 'U', flag: 0 }        // U
         ];
 
         // Check if we've exceeded the practice sequence
