@@ -21,22 +21,13 @@ class ReadingSpanTask {
         this.practiceSentences = {
             1: {
                 1: [
-                    { sentence: "I took my cat to the vet, and I was informed that she is really sick", target: "sick" }
+                    { sentence: "Of course it was expensive, but he was very happy with his beautiful new car.", target: "car" },
+                    { sentence: "Five minutes before the end of the match, the referee gave the deciding penalty.", target: "penalty" }
                 ],
                 2: [
-                    { sentence: "I do not know if we are in fall or still summer, but it rained heavily today", target: "today" },
-                    { sentence: "I drove to work after picking up my cousin from the airport", target: "airport" }
-                ]
-            },
-            2: {
-                1: [
-                    { sentence: "The paint splashed from the building across my flat, changed my bag colour to red", target: "red" },
-                    { sentence: "Let's take a walk downtown so we get the opportunity to attend the concert", target: "concert" }
-                ],
-                2: [
-                    { sentence: "Many years ago, it was hard to sing music", target: "music" },
-                    { sentence: "Stress is a challenge that needs to be taken seriously", target: "seriously" },
-                    { sentence: "The lecture took so long yesterday due to the multiple presentations", target: "presentations" }
+                    { sentence: "When the famous artists were ready, they made a new appointment for next Friday.", target: "Friday" },
+                    { sentence: "His neighbors never understood how it was possible that he had so much fortune.", target: "fortune" },
+                    { sentence: "The only way the police could stop the bank robbery was by killing the two men.", target: "men" }
                 ]
             }
         };
