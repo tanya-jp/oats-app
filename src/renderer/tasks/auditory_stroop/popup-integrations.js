@@ -15,7 +15,8 @@
 //              (24 per condition), single block, pseudo-random order
 //   Trial      500-Hz warning tone -> 500 ms -> word. RT measured from word
 //              onset. Responses slower than 3 s count as incorrect. 2-s delay
-//              between the response and the next warning tone.
+//              between the response and the next warning tone. The response
+//              screen stays up for the whole phase (no fixation cross).
 //   Scoring    RTs > 2 SD from each condition's mean and no-response trials
 //              excluded; interference = incongruent RT - neutral RT.
 //
@@ -562,8 +563,8 @@ class AuditoryStroopPopup {
                     padding: 40px;
                 }
 
-                .audio-test-section {
-                    margin: 24px 0;
+                .audio-test {
+                    margin: 20px 0;
                 }
 
                 .welcome-screen h3,
@@ -624,15 +625,36 @@ class AuditoryStroopPopup {
                     font-size: 16px;
                 }
 
-                .fixation-cross {
-                    font-size: 64px;
-                    font-weight: bold;
-                    color: #1d1d1f;
-                    user-select: none;
-                }
-
+                /* Fixed width, so the screen doesn't shift when feedback appears */
                 .stimulus-display {
                     text-align: center;
+                    width: 460px;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .trial-counter {
+                    font-size: 16px;
+                    color: #6c757d;
+                    margin-bottom: 20px;
+                }
+
+                /* Same look as the response timer in the speech-in-noise tasks */
+                .response-timer {
+                    font-size: 14px;
+                    color: #2c3e50;
+                    text-align: center;
+                    margin: 0 0 8px;
+                }
+
+                /* Practice feedback sits under the buttons in a slot of fixed
+                   height, so the trial screen never moves between trials */
+                .feedback-slot {
+                    min-height: 170px;
+                    margin-top: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
 
                 .stimulus-icon {
@@ -689,10 +711,12 @@ class AuditoryStroopPopup {
 
                 .feedback {
                     text-align: center;
-                    padding: 20px;
+                    padding: 12px 20px;
                     border-radius: 12px;
-                    font-size: 18px;
+                    font-size: 16px;
                     font-weight: 600;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
 
                 .feedback.correct {
@@ -849,11 +873,13 @@ class AuditoryStroopPopup {
                 <p>Each trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible using the M and F keys or the onscreen buttons.</p>
                 ${this.renderMissingAudioWarning()}
                 
-                <div class="audio-test-section">
+                <div class="audio-test">
                     <button id="test-audio-btn" class="task-button task-button-secondary">
                         🔊 Test Audio
                     </button>
-                    <p class="audio-caption">Checks each audio output with a beep, then plays the warning beep and a word</p>
+                    <p style="font-size: 14px; color: #6e6e73; margin-top: 8px; text-align: center;">
+                        Checks each audio output with a beep, then plays the warning beep and a word
+                    </p>
                     <div class="oats-audio-check-result" id="audio-check-result" hidden></div>
                 </div>
                 
@@ -986,6 +1012,9 @@ class AuditoryStroopPopup {
     async runTrialSequence(phase) {
         const stimuli = phase === 'practice' ? this.practiceStimuli : this.mainStimuli;
         this.trialLoopRunning = true;
+
+        // One trial screen for the whole phase; trials only update it
+        this.showTrialScreen();
         
         for (this.currentTrial = 0; this.currentTrial < stimuli.length; this.currentTrial++) {
             if (this.taskState === 'stopped' || this.finishedEarly) break;
@@ -1013,6 +1042,26 @@ class AuditoryStroopPopup {
         }
     }
 
+    // Response screen shown for every trial of the phase, as CVC and Reading
+    // Span keep one screen up instead of clearing it between trials.
+    showTrialScreen() {
+        const taskStage = document.getElementById('task-stage');
+        taskStage.innerHTML = `
+            <div class="stimulus-display">
+                <div class="trial-counter" id="trial-counter"></div>
+                <div class="stimulus-icon">🔊</div>
+                <div class="stimulus-text">Listen carefully...</div>
+                <div class="response-timer" id="response-timer">Time left: —</div>
+                <div class="response-buttons">
+                    ${AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
+                        `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.key.toUpperCase()}</span></button>`
+                    ).join('')}
+                </div>
+                <div class="feedback-slot" id="feedback-slot"></div>
+            </div>
+        `;
+    }
+
     async runSingleTrial(phase, stimulus) {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
@@ -1020,32 +1069,20 @@ class AuditoryStroopPopup {
         const trialNum = this.currentTrial + 1;
         const totalTrials = phase === 'practice' ? this.practiceStimuli.length : this.mainStimuli.length;
         
-        progressDisplay.textContent = `${phase === 'practice' ? 'Practice' : 'Main'} Trial ${trialNum} of ${totalTrials}`;
-        
-        // Warning signal: fixation cross while the 500-Hz tone plays
-        taskStage.innerHTML = '<div class="fixation-cross">+</div>';
+        // Trial count sits above the stimulus, as in CVC; the footer names the phase
+        progressDisplay.textContent = (phase === 'practice' ? 'Practice' : 'Main') + ' – Auditory Stroop' + (this.isPaused ? ' (PAUSED)' : '');
+        const counter = document.getElementById('trial-counter');
+        if (counter) counter.textContent = `Trial ${trialNum} of ${totalTrials}`;
+
+        // Clear the previous trial's button highlight before the next word
+        taskStage.querySelectorAll('.response-button.clicked').forEach(btn => btn.classList.remove('clicked'));
 
         const playback = await this.startTrialAudio(stimulus);
         const responsePromise = this.collectResponse(playback.onsetPerf);
-
-        const untilOnset = playback.onsetPerf - performance.now();
-        if (untilOnset > 0) await this.wait(untilOnset);
-
-        if (this.taskState !== 'stopped') {
-            taskStage.innerHTML = `
-                <div class="stimulus-display">
-                    <div class="stimulus-icon">🔊</div>
-                    <div class="stimulus-text">Listen carefully...</div>
-                    <div class="response-buttons">
-                        ${AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
-                            `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.key.toUpperCase()}</span></button>`
-                        ).join('')}
-                    </div>
-                </div>
-            `;
-        }
+        this.startResponseCountdown(playback.onsetPerf);
         
         const response = await responsePromise;
+        this.stopResponseCountdown(response);
         if (response.response === 'aborted') return;
         
         // Record trial result
@@ -1084,7 +1121,6 @@ class AuditoryStroopPopup {
         }
         
         // 2-s delay before the next warning tone
-        taskStage.innerHTML = '';
         await this.wait(this.config.parameters.timing.iti);
     }
 
@@ -1274,8 +1310,46 @@ class AuditoryStroopPopup {
         });
     }
 
+    // Countdown of the response deadline, shown like the speech-in-noise
+    // tasks' response timer. "—" until the word starts, then counts down
+    // from the deadline; it stops at the response.
+    startResponseCountdown(onsetPerf) {
+        this.stopResponseCountdown();
+        const deadline = this.config.parameters.timing.response_timeout;
+        const update = () => {
+            const elapsed = performance.now() - onsetPerf;
+            this.showResponseCountdown(elapsed < 0 ? null : Math.max(0, deadline - elapsed));
+        };
+        update();
+        this.responseCountdown = setInterval(update, 100);
+    }
+
+    stopResponseCountdown(response) {
+        if (this.responseCountdown) {
+            clearInterval(this.responseCountdown);
+            this.responseCountdown = null;
+        }
+        if (!response || response.response === 'aborted') return;
+        const deadline = this.config.parameters.timing.response_timeout;
+        this.showResponseCountdown(response.time === null ? 0 : Math.max(0, deadline - response.time));
+    }
+
+    showResponseCountdown(ms) {
+        const timerEl = document.getElementById('response-timer');
+        if (timerEl) {
+            timerEl.textContent = `Time left: ${ms === null ? '—' : this.formatTime(Math.round(ms))}`;
+        }
+    }
+
+    formatTime(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        const millis = ms % 1000;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+    }
+
     async showFeedback(trialResult, phase) {
-        const taskStage = document.getElementById('task-stage');
+        const slot = document.getElementById('feedback-slot');
         let feedbackHTML = '';
         
         if (trialResult.participant_response === 'timeout') {
@@ -1305,8 +1379,10 @@ class AuditoryStroopPopup {
             `;
         }
         
-        taskStage.innerHTML = feedbackHTML;
+        if (!slot) return;
+        slot.innerHTML = feedbackHTML;
         await this.wait(this.config.parameters.timing.error_display_duration);
+        slot.innerHTML = '';
     }
 
     togglePause() {
