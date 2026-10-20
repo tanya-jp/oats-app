@@ -12,17 +12,21 @@
 //              neutral     - "person" by a man or a woman
 //              incongruent - "mother" by a man, "father" by a woman
 //   Block      each of the 12 pairings presented 6 times = 72 trials
-//              (24 per condition), single block, pseudo-random order
+//              (24 per condition), single block, pseudo-random order. Unlike
+//              the paper (an order per participant), every participant gets
+//              the same order (seeded, see trial_order_seed).
 //   Trial      500-Hz warning tone -> 500 ms -> word. RT measured from word
 //              onset. Responses slower than 3 s count as incorrect. 2-s delay
-//              between the response and the next warning tone. The response
-//              screen stays up for the whole phase (no fixation cross).
-//   Scoring    RTs > 2 SD from each condition's mean and no-response trials
-//              excluded; interference = incongruent RT - neutral RT.
+//              between the response (or the 3-s deadline) and the next
+//              warning tone. The response screen stays up for the whole
+//              phase (no fixation cross).
+//   Scoring    correct trials only; RTs exceeding each condition's mean by
+//              more than 2 SD and no-response trials excluded;
+//              interference = incongruent RT - neutral RT.
 //
-// The paper does not describe a practice block for this task; the practice
-// phase kept here (default 12 trials with feedback, one of each pairing)
-// mirrors the 12 practice trials used for the Garner task.
+// The paper does not describe a practice block for this task, so there is
+// none by default (practice = 0). A practice phase with feedback can be
+// turned on in the task settings.
 class AuditoryStroopPopup {
     constructor() {
         this.isOpen = false;
@@ -121,8 +125,9 @@ class AuditoryStroopPopup {
             version: AuditoryStroopPopup.CONFIG_VERSION,
             parameters: {
                 trials: {
-                    practice: 12,      // not specified in the paper
-                    repetitions: 6     // 12 pairings x 6 = 72 trials (24 per condition)
+                    practice: 0,       // the paper describes no practice block
+                    repetitions: 6,    // 12 pairings x 6 = 72 trials (24 per condition)
+                    trial_order_seed: 1 // same seed -> same trial order for everyone
                 },
                 timing: {
                     warning_tone_frequency: 500,     // Hz
@@ -363,10 +368,23 @@ class AuditoryStroopPopup {
         return buffer;
     }
 
+    // Seeded generator (mulberry32) used for every ordering decision, so the
+    // same seed gives every participant the identical trial sequence.
+    seedRandom(seed) {
+        let state = seed >>> 0;
+        this.random = () => {
+            state = (state + 0x6D2B79F5) >>> 0;
+            let t = state;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
     shuffle(items) {
         const array = [...items];
         for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(this.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
@@ -391,7 +409,7 @@ class AuditoryStroopPopup {
                 const forced = maxCount > Math.ceil(pool.length / 2)
                     ? candidates.filter(({ s }) => counts[keyFn(s)] === maxCount)
                     : candidates;
-                const choice = forced[Math.floor(Math.random() * forced.length)];
+                const choice = forced[Math.floor(this.random() * forced.length)];
                 sequence.push(choice.s);
                 pool.splice(choice.i, 1);
             }
@@ -402,6 +420,8 @@ class AuditoryStroopPopup {
 
     setupStimuli() {
         const trials = this.config.parameters.trials;
+        const seed = parseInt(trials.trial_order_seed, 10);
+        this.seedRandom(isNaN(seed) ? 1 : seed);
 
         // Main block: every word-voice pairing x repetitions (paper: 12 x 6 = 72)
         const main = [];
@@ -1110,18 +1130,17 @@ class AuditoryStroopPopup {
         
         this.results.push(trialResult);
 
-        // Let the word finish before the inter-trial delay
-        await Promise.race([playback.ended, this.wait(5000)]);
         // An output underrun while the tone or word played shifts the onset
-        trialResult.timing_reliable = playback.timingReliable;
+        playback.ended.then(() => { trialResult.timing_reliable = playback.timingReliable; });
         
-        // Feedback during practice only (no feedback on test trials)
+        // 2-s delay from the response (or the 3-s deadline) to the next
+        // warning tone. Practice feedback is shown during it (none on test
+        // trials).
+        const interval = this.wait(this.config.parameters.timing.iti);
         if (phase === 'practice') {
             await this.showFeedback(trialResult, phase);
         }
-        
-        // 2-s delay before the next warning tone
-        await this.wait(this.config.parameters.timing.iti);
+        await interval;
     }
 
     // ASIO: warning tone, silent gap and word go out as one continuous sound
@@ -1381,7 +1400,9 @@ class AuditoryStroopPopup {
         
         if (!slot) return;
         slot.innerHTML = feedbackHTML;
-        await this.wait(this.config.parameters.timing.error_display_duration);
+        // Shown within the inter-trial interval, so it never delays the next trial
+        const timing = this.config.parameters.timing;
+        await this.wait(Math.min(timing.error_display_duration, timing.iti));
         slot.innerHTML = '';
     }
 
@@ -1449,7 +1470,7 @@ class AuditoryStroopPopup {
         return Math.sqrt(values.reduce((s, v) => s + (v - m) ** 2, 0) / (values.length - 1));
     }
 
-    // Correct, responded trials only; RTs > 2 SD from the condition mean are
+    // Correct, responded trials only; RTs more than 2 SD above the condition mean are
     // trimmed and flagged (rt_outlier) on the trial records.
     summarizeCondition(trials) {
         const total = trials.length;
@@ -1463,7 +1484,7 @@ class AuditoryStroopPopup {
         trials.forEach(t => { t.rt_outlier = false; });
         const kept = [];
         rtTrials.forEach(t => {
-            if (sd !== null && Math.abs(t.reaction_time - m) > 2 * sd) {
+            if (sd !== null && t.reaction_time - m > 2 * sd) {
                 t.rt_outlier = true;
             } else {
                 kept.push(t.reaction_time);
@@ -1602,6 +1623,7 @@ class AuditoryStroopPopup {
         const config = this.config.parameters;
         content += `Practice Trials: ${this.practiceStimuli.length}\n`;
         content += `Repetitions per Word-Voice Pairing: ${config.trials.repetitions} (${this.mainStimuli.length} main trials)\n`;
+        content += `Trial Order Seed: ${config.trials.trial_order_seed} (same seed = same trial order for every participant)\n`;
         content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
         content += `Warning Tone -> Word Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from word onset): ${config.timing.response_timeout}ms\n`;
@@ -1618,8 +1640,8 @@ class AuditoryStroopPopup {
         content += 'STROOP RESULTS (main trials only)\n';
         content += '-'.repeat(60) + '\n';
         content += 'RTs from correct trials, measured from word onset; responses slower\n';
-        content += `than ${config.timing.response_timeout}ms count as incorrect; RTs > 2 SD from each condition\n`;
-        content += 'mean removed. Interference = incongruent RT - neutral RT.\n\n';
+        content += `than ${config.timing.response_timeout}ms count as incorrect; RTs more than 2 SD above each\n`;
+        content += 'condition mean removed. Interference = incongruent RT - neutral RT.\n\n';
         content += 'Condition    | Trials | Correct | Accuracy | No-resp | Mean RT | SD     | RTs used | Trimmed\n';
         content += '-'.repeat(95) + '\n';
         for (const condition of ['congruent', 'neutral', 'incongruent']) {
