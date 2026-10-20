@@ -1613,20 +1613,9 @@ class Dashboard {
                 <div class="config-tab-content" id="timing-tab">
                     <div class="config-card">
                         <h3>Timing Parameters</h3>
-                        <div class="help-text" style="margin-bottom: 12px;">Each trial: 500 Hz warning tone (100 ms) &rarr; delay &rarr; word. RT is measured from word onset.</div>
+                        <div class="help-text" style="margin-bottom: 12px;">Each trial plays the word with the response screen already up. RT is measured from word onset.</div>
                         <div class="config-group">
-                            <label for="sc-warning-delay">Warning Tone to Word Delay</label>
-                            <div class="slider-control">
-                                <div class="slider-value">
-                                    <span>Duration</span>
-                                    <span class="slider-value-display" id="sc-warning-delay-value">500 ms</span>
-                                </div>
-                                <input type="range" id="sc-warning-delay" name="warning_to_stimulus_delay" min="200" max="1500" step="50" value="500" class="config-slider">
-                            </div>
-                            <div class="help-text">Paper: 500 ms</div>
-                        </div>
-                        <div class="config-group">
-                            <label for="iti-slider">Interval Before the Next Warning Tone</label>
+                            <label for="iti-slider">Interval Before the Next Word</label>
                             <div class="slider-control">
                                 <div class="slider-value">
                                     <span>Duration</span>
@@ -1916,9 +1905,6 @@ class Dashboard {
             case 'iti':
                 document.getElementById('iti-value').textContent = `${value} ms`;
                 break;
-            case 'warning_to_stimulus_delay':
-                document.getElementById('sc-warning-delay-value').textContent = `${value} ms`;
-                break;
             case 'response_timeout':
                 document.getElementById('timeout-value').textContent = `${value} ms`;
                 break;
@@ -2001,9 +1987,6 @@ class Dashboard {
                     orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
                 timing: {
-                    warning_tone_frequency: 500,
-                    warning_tone_duration: 100,
-                    warning_to_stimulus_delay: intValue('sc-warning-delay', 500),
                     iti: intValue('iti-slider', 2000),
                     response_timeout: intValue('response-timeout-slider', 3000),
                     error_display_duration: intValue('error-display-slider', 1500)
@@ -2144,7 +2127,6 @@ class Dashboard {
             this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
         if (config.version === 2 && params.timing) {
-            this.setInputValue('sc-warning-delay', params.timing.warning_to_stimulus_delay);
             this.setInputValue('iti-slider', params.timing.iti);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);
             this.setInputValue('error-display-slider', params.timing.error_display_duration);

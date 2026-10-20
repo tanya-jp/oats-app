@@ -18,9 +18,10 @@
 //   control/orthogonal order are counterbalanced (see Task Configuration).
 //   12 practice trials (with feedback) before each condition; no feedback
 //   on test trials.
-//   Trial: 500-Hz warning tone -> 500 ms -> stimulus. RT is measured from
-//   stimulus onset. 3-s response deadline, 2-s silent interval before the
-//   next warning tone.
+//   Trial: the word plays with the response screen already up (no warning
+//   tone or fixation cross; the screen stays the same from trial to trial).
+//   RT is measured from stimulus onset. 3-s response deadline, 2-s silent
+//   interval before the next word.
 //   Scoring: interference = mean correct RT (orthogonal) - mean correct RT
 //   (control), per dimension, after removing RTs > 2 SD from each
 //   condition's mean.
@@ -141,9 +142,6 @@ class SpeededClassificationPopup {
                     voice_control_word: 'random'         // any of the 8 words | 'random'
                 },
                 timing: {
-                    warning_tone_frequency: 500,      // Hz
-                    warning_tone_duration: 100,       // ms
-                    warning_to_stimulus_delay: 500,   // ms, tone offset -> stimulus onset
                     iti: 2000,                        // ms silent interval after the response
                     response_timeout: 3000,           // ms from stimulus onset
                     error_display_duration: 1500      // ms, practice feedback only
@@ -508,7 +506,7 @@ class SpeededClassificationPopup {
             ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>B</strong> key (or click B) for words starting with B.\nPress the <strong>P</strong> key (or click P) for words starting with P.'
             : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>M</strong> key (or click Male) for a male voice.\nPress the <strong>F</strong> key (or click Female) for a female voice.';
         const tail = isPractice
-            ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first do ${practiceCount} practice trials with feedback.`
+            ? `\n\nRespond as quickly and accurately as possible after each word.\nYou will first do ${practiceCount} practice trials with feedback.`
             : '\n\nThe practice is over. Respond as quickly and accurately as possible.\nNo feedback will be provided.';
         return task + tail;
     }
@@ -657,7 +655,7 @@ class SpeededClassificationPopup {
                     <div class="task-welcome">
                         <h3>Welcome to the Speeded Classification Task</h3>
                         <p>You will hear spoken words. In each block you will classify every word either by its first sound (B or P) or by the speaker's voice (male or female).</p>
-                        <p>Each trial starts with a short beep, followed half a second later by the word. Respond as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
+                        <p>Respond to each word as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
                         <p>This task has ${this.phases.filter(p => !p.isPractice).length} blocks (${totalTrials} trials in total, including practice).</p>
                         ${this.renderMissingAudioWarning()}
                         ${this.renderCounterbalancingControls()}
@@ -666,7 +664,7 @@ class SpeededClassificationPopup {
                                 🔊 Test Audio
                             </button>
                             <p style="font-size: 14px; color: #6e6e73; margin-top: 8px;">
-                                Checks each audio output with a beep, then plays the warning beep and a word
+                                Checks each audio output with a beep, then plays a word
                             </p>
                             <div class="oats-audio-check-result" id="audio-check-result" hidden></div>
                         </div>
@@ -870,15 +868,24 @@ class SpeededClassificationPopup {
                     font-size: 16px;
                 }
 
-                .fixation-cross {
-                    font-size: 64px;
-                    font-weight: bold;
-                    color: #1d1d1f;
-                    user-select: none;
-                }
-
                 .stimulus-display {
                     text-align: center;
+                }
+
+                .trial-counter {
+                    font-size: 16px;
+                    color: #6c757d;
+                    margin-bottom: 20px;
+                }
+
+                /* Practice feedback sits under the buttons in a slot of fixed
+                   height, so the trial screen never moves between trials */
+                .feedback-slot {
+                    min-height: 96px;
+                    margin-top: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
 
                 .stimulus-icon {
@@ -935,9 +942,9 @@ class SpeededClassificationPopup {
 
                 .feedback {
                     text-align: center;
-                    padding: 20px;
+                    padding: 12px 20px;
                     border-radius: 12px;
-                    font-size: 18px;
+                    font-size: 16px;
                     font-weight: 600;
                 }
 
@@ -1088,8 +1095,8 @@ class SpeededClassificationPopup {
         });
     }
 
-    // Plays the warning tone followed by one real stimulus so the
-    // experimenter can check presentation level before starting.
+    // Plays one real stimulus so the experimenter can check presentation
+    // level before starting.
     async testAudio() {
         const sample = this.stimulusList.find(s => !this.missingAudio.includes(s.stimulus_id)) || this.stimulusList[0];
         try {
@@ -1099,7 +1106,7 @@ class SpeededClassificationPopup {
                 button: document.getElementById('audio-test-btn'),
                 resultEl: document.getElementById('audio-check-result'),
                 revealAfter: document.getElementById('begin-task-btn'),
-                sampleLabel: 'warning beep and a word',
+                sampleLabel: 'a word',
                 playSample: async () => {
                     const playback = await this.startTrialAudio(sample);
                     await playback.ended;
@@ -1153,6 +1160,9 @@ class SpeededClassificationPopup {
             await this.showPhaseInstructions();
             if (this.taskState === 'stopped' || this.finishedEarly) break;
             
+            // One trial screen for the whole phase; trials only update it
+            this.showTrialScreen();
+
             // Run trials for this phase
             for (this.currentTrialInPhase = 0; this.currentTrialInPhase < this.currentPhase.trialCount; this.currentTrialInPhase++) {
                 if (this.taskState === 'stopped' || this.finishedEarly) break;
@@ -1200,44 +1210,48 @@ class SpeededClassificationPopup {
         });
     }
 
+    // Response screen shown for every trial of the phase, as CVC and Reading
+    // Span keep one screen up instead of clearing it between trials.
+    showTrialScreen() {
+        const taskStage = document.getElementById('task-stage');
+        taskStage.innerHTML = `
+            <div class="stimulus-display">
+                <div class="trial-counter" id="trial-counter"></div>
+                <div class="stimulus-icon">${this.currentPhase.type === 'phoneme' ? '🔊' : '👤'}</div>
+                <div class="stimulus-text">Listen carefully...</div>
+                <div class="response-buttons">
+                    ${this.currentPhase.responseButtons.map(button => 
+                        `<button class="response-button" data-response="${button.value}">
+                            ${button.label}<span class="key-hint">${button.key.toUpperCase()}</span>
+                        </button>`
+                    ).join('')}
+                </div>
+                <div class="feedback-slot" id="feedback-slot"></div>
+            </div>
+        `;
+    }
+
     async runSingleTrial() {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         const stimulus = this.currentPhase.stimuli[this.currentTrialInPhase];
         
         const trialNumber = this.totalTrialsCompleted + 1;
-        const totalTrials = this.phases.reduce((sum, phase) => sum + phase.trialCount, 0);
         
-        progressDisplay.textContent = `Trial ${trialNumber} of ${totalTrials} (${this.currentPhase.title})`;
+        // Trial count sits above the stimulus, as in CVC; the footer names the block
+        progressDisplay.textContent = this.currentPhase.title + (this.isPaused ? ' (PAUSED)' : '');
+        const counter = document.getElementById('trial-counter');
+        if (counter) counter.textContent = `Trial ${this.currentTrialInPhase + 1} of ${this.currentPhase.trialCount}`;
         
-        // Warning signal: fixation cross on screen while the 500-Hz tone plays
-        taskStage.innerHTML = '<div class="fixation-cross">+</div>';
+        // Clear the previous trial's button highlight before the next word
+        taskStage.querySelectorAll('.response-button.clicked').forEach(btn => btn.classList.remove('clicked'));
 
-        // Schedules warning tone -> delay -> stimulus; returns the stimulus
-        // onset (performance.now() clock) and a promise for playback end.
+        // Schedules the stimulus; returns its onset (performance.now() clock)
+        // and a promise for playback end.
         const playback = await this.startTrialAudio(stimulus);
 
         // Responses are collected from stimulus onset, as in the paper
         const responsePromise = this.collectResponse(playback.onsetPerf, this.currentPhase.responseButtons);
-
-        const untilOnset = playback.onsetPerf - performance.now();
-        if (untilOnset > 0) await this.wait(untilOnset);
-
-        if (this.taskState !== 'stopped') {
-            taskStage.innerHTML = `
-                <div class="stimulus-display">
-                    <div class="stimulus-icon">${this.currentPhase.type === 'phoneme' ? '🔊' : '👤'}</div>
-                    <div class="stimulus-text">Listen carefully...</div>
-                    <div class="response-buttons">
-                        ${this.currentPhase.responseButtons.map(button => 
-                            `<button class="response-button" data-response="${button.value}">
-                                ${button.label}<span class="key-hint">${button.key.toUpperCase()}</span>
-                            </button>`
-                        ).join('')}
-                    </div>
-                </div>
-            `;
-        }
         
         const response = await responsePromise;
         if (response.response === 'aborted') return;
@@ -1275,7 +1289,7 @@ class SpeededClassificationPopup {
 
         // Let the word finish before the silent interval starts
         await Promise.race([playback.ended, this.wait(5000)]);
-        // An output underrun while the tone or word played shifts the onset
+        // An output underrun while the word played shifts the onset
         trialResult.timing_reliable = playback.timingReliable;
         
         // Feedback on practice trials only (none on test trials)
@@ -1283,17 +1297,14 @@ class SpeededClassificationPopup {
             await this.showFeedback(trialResult);
         }
         
-        // 2-s silent interval before the next warning tone
-        taskStage.innerHTML = '';
+        // 2-s silent interval before the next word
         await this.wait(this.config.parameters.timing.iti);
     }
 
-    // ASIO: warning tone, silent gap and word go out as one continuous sound
-    // on the Audio Setup output channels, so the tone-to-word gap is sample-exact
-    // and the word onset comes from the interface's own clock (known before
-    // the word is heard, so responses are timed from true word onset).
+    // ASIO: the word goes out on the Audio Setup output channels and its
+    // onset comes from the interface's own clock (known before the word is
+    // heard, so responses are timed from true word onset).
     async startTrialAudioAsio(stimulus) {
-        const timing = this.config.parameters.timing;
         const engine = this.asioEngine;
         const filePath = this.audioFilePaths[stimulus.stimulus_id];
         const buffer = this.audioBuffers[stimulus.stimulus_id];
@@ -1308,22 +1319,18 @@ class SpeededClassificationPopup {
 
         let onStarted;
         const started = new Promise((resolve) => { onStarted = resolve; });
-        const played = engine.playSequence([
-            { toneHz: timing.warning_tone_frequency, durationMs: timing.warning_tone_duration, level: 0.3, rampMs: 5 },
-            { silenceMs: timing.warning_to_stimulus_delay },
-            word
-        ], {
+        const played = engine.playSequence([word], {
             volume: this.config.parameters.audio.volume,
             onStart: onStarted
         });
 
         const first = await Promise.race([started, played, this.wait(2000).then(() => null)]);
-        if (!first || first.cancelled || first.partOnsetPerfMs[2] == null) {
+        if (!first || first.cancelled || first.partOnsetPerfMs[0] == null) {
             engine.clearOutputQueue();
             throw new Error('ASIO did not start playback');
         }
 
-        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
+        const playback = { onsetPerf: first.partOnsetPerfMs[0], backend: 'ASIO', timingReliable: true };
         playback.ended = played.then((result) => {
             playback.timingReliable = !result.cancelled && result.timingReliable !== false;
             return result;
@@ -1345,10 +1352,7 @@ class SpeededClassificationPopup {
     }
 
     async startTrialAudio(stimulus) {
-        const timing = this.config.parameters.timing;
         const volume = this.config.parameters.audio.volume;
-        const toneSec = timing.warning_tone_duration / 1000;
-        const delaySec = timing.warning_to_stimulus_delay / 1000;
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             try {
                 return await this.startTrialAudioAsio(stimulus);
@@ -1358,32 +1362,15 @@ class SpeededClassificationPopup {
         }
 
         if (!this.audioContext) {
-            await this.wait(timing.warning_tone_duration + timing.warning_to_stimulus_delay);
             return { onsetPerf: performance.now(), ended: this.wait(500), backend: 'none', timingReliable: false };
         }
 
         const ctx = this.audioContext;
         if (ctx.state === 'suspended') await ctx.resume();
 
-        // Everything is scheduled on the audio clock so the
-        // tone-to-stimulus interval is sample-accurate.
-        const toneStart = ctx.currentTime + 0.05;
-        const toneEnd = toneStart + toneSec;
-        const stimulusStart = toneEnd + delaySec;
-
-        const oscillator = ctx.createOscillator();
-        const toneGain = ctx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.value = timing.warning_tone_frequency;
-        oscillator.connect(toneGain);
-        toneGain.connect(ctx.destination);
-        const toneLevel = volume * 0.3;
-        toneGain.gain.setValueAtTime(0, toneStart);
-        toneGain.gain.linearRampToValueAtTime(toneLevel, toneStart + 0.005);
-        toneGain.gain.setValueAtTime(toneLevel, Math.max(toneStart + 0.005, toneEnd - 0.005));
-        toneGain.gain.linearRampToValueAtTime(0, toneEnd);
-        oscillator.start(toneStart);
-        oscillator.stop(toneEnd + 0.01);
+        // Scheduled slightly ahead on the audio clock so the onset time is
+        // known exactly.
+        const stimulusStart = ctx.currentTime + 0.05;
 
         let ended;
         const buffer = this.audioBuffers[stimulus.stimulus_id];
@@ -1482,7 +1469,7 @@ class SpeededClassificationPopup {
     }
 
     async showFeedback(trialResult) {
-        const taskStage = document.getElementById('task-stage');
+        const slot = document.getElementById('feedback-slot');
         let feedbackHTML = '';
         
         if (trialResult.participant_response === 'timeout') {
@@ -1510,8 +1497,10 @@ class SpeededClassificationPopup {
             `;
         }
         
-        taskStage.innerHTML = feedbackHTML;
+        if (!slot) return;
+        slot.innerHTML = feedbackHTML;
         await this.wait(this.config.parameters.timing.error_display_duration);
+        slot.innerHTML = '';
     }
 
     togglePause() {
@@ -1751,8 +1740,6 @@ class SpeededClassificationPopup {
         content += `Practice Trials per Condition: ${config.trials.practice_per_condition}\n`;
         content += `Control Repetitions per Stimulus: ${config.trials.control_repetitions}\n`;
         content += `Orthogonal Repetitions per Stimulus: ${config.trials.orthogonal_repetitions}\n`;
-        content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
-        content += `Warning Tone -> Stimulus Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from stimulus onset): ${config.timing.response_timeout}ms\n`;
         content += `Silent Interval after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
