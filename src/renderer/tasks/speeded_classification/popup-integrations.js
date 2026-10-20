@@ -896,6 +896,14 @@ class SpeededClassificationPopup {
                     text-align: center;
                 }
 
+                /* Same look as the response timer in the speech-in-noise tasks */
+                .response-timer {
+                    font-size: 14px;
+                    color: #2c3e50;
+                    text-align: center;
+                    margin: 0 0 8px;
+                }
+
                 .trial-counter {
                     font-size: 16px;
                     color: #6c757d;
@@ -1243,6 +1251,7 @@ class SpeededClassificationPopup {
                 <div class="trial-counter" id="trial-counter"></div>
                 <div class="stimulus-icon">${this.currentPhase.type === 'phoneme' ? '🔊' : '👤'}</div>
                 <div class="stimulus-text">Listen carefully...</div>
+                <div class="response-timer" id="response-timer">Time left: —</div>
                 <div class="response-buttons">
                     ${this.currentPhase.responseButtons.map(button => 
                         `<button class="response-button" data-response="${button.value}">
@@ -1276,8 +1285,10 @@ class SpeededClassificationPopup {
 
         // Responses are collected from stimulus onset, as in the paper
         const responsePromise = this.collectResponse(playback.onsetPerf, this.currentPhase.responseButtons);
+        this.startResponseCountdown(playback.onsetPerf);
         
         const response = await responsePromise;
+        this.stopResponseCountdown(response);
         if (response.response === 'aborted') return;
 
         const correctResponse = this.getCorrectResponse(stimulus, this.currentPhase.dimension);
@@ -1510,6 +1521,44 @@ class SpeededClassificationPopup {
                 resolve({ response: 'aborted', time: null, source: 'none' });
             };
         });
+    }
+
+    // Countdown of the response deadline, shown like the speech-in-noise
+    // tasks' response timer. "—" until the word starts, then counts down
+    // from the deadline; it stops at the response.
+    startResponseCountdown(onsetPerf) {
+        this.stopResponseCountdown();
+        const deadline = this.config.parameters.timing.response_timeout;
+        const update = () => {
+            const elapsed = performance.now() - onsetPerf;
+            this.showResponseCountdown(elapsed < 0 ? null : Math.max(0, deadline - elapsed));
+        };
+        update();
+        this.responseCountdown = setInterval(update, 100);
+    }
+
+    stopResponseCountdown(response) {
+        if (this.responseCountdown) {
+            clearInterval(this.responseCountdown);
+            this.responseCountdown = null;
+        }
+        if (!response || response.response === 'aborted') return;
+        const deadline = this.config.parameters.timing.response_timeout;
+        this.showResponseCountdown(response.time === null ? 0 : Math.max(0, deadline - response.time));
+    }
+
+    showResponseCountdown(ms) {
+        const timerEl = document.getElementById('response-timer');
+        if (timerEl) {
+            timerEl.textContent = `Time left: ${ms === null ? '—' : this.formatTime(Math.round(ms))}`;
+        }
+    }
+
+    formatTime(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        const millis = ms % 1000;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
     }
 
     formatResponseLabel(value) {
