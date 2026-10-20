@@ -14,17 +14,20 @@
 //                 voice:   one word by all 8 talkers = 8 stimuli, each x8
 //                 (pseudo-random, never the same stimulus twice in a row)
 //               orthogonal  - all 64 stimuli once each, pseudo-random
-//   Each participant runs all 4 conditions; dimension order and
-//   control/orthogonal order are counterbalanced (see Task Configuration).
+//   Each participant runs all 4 conditions. Unlike the paper (which
+//   counterbalanced across participants), every participant gets the same
+//   session: phoneme before voice, control before orthogonal, buff-puff by
+//   the male talkers, "bad" for the voice control, and one fixed
+//   pseudo-random trial order (seeded, see trial_order_seed).
 //   12 practice trials (with feedback) before each condition; no feedback
 //   on test trials.
-//   Trial: the word plays with the response screen already up (no warning
-//   tone or fixation cross; the screen stays the same from trial to trial).
-//   RT is measured from stimulus onset. 3-s response deadline, 2-s silent
-//   interval before the next word.
+//   Trial: 500-Hz warning tone -> 500 ms -> stimulus. RT is measured from
+//   stimulus onset. 3-s response deadline; the 2-s silent interval before
+//   the next warning tone starts at the response (or at the deadline).
+//   The response screen stays up for the whole block (no fixation cross).
 //   Scoring: interference = mean correct RT (orthogonal) - mean correct RT
-//   (control), per dimension, after removing RTs > 2 SD from each
-//   condition's mean.
+//   (control), per dimension, after removing RTs exceeding each
+//   condition's mean by more than 2 SD.
 class SpeededClassificationPopup {
     constructor() {
         this.isOpen = false;
@@ -134,14 +137,20 @@ class SpeededClassificationPopup {
                     control_repetitions: 8,      // 8 stimuli x 8 = 64 control trials
                     orthogonal_repetitions: 1    // 64 stimuli x 1 = 64 orthogonal trials
                 },
+                // Same for every participant (the paper counterbalanced these;
+                // the order here follows how the paper presents them)
                 counterbalancing: {
-                    dimension_order: 'random',           // 'phoneme_first' | 'voice_first' | 'random'
-                    condition_order: 'random',           // 'control_first' | 'orthogonal_first' | 'random'
-                    phoneme_control_pair: 'random',      // 'bad-pad' | 'buff-puff' | 'beach-peach' | 'bill-pill' | 'random'
-                    phoneme_control_talker_sex: 'random',// 'male' | 'female' | 'random'
-                    voice_control_word: 'random'         // any of the 8 words | 'random'
+                    dimension_order: 'phoneme_first',    // 'phoneme_first' | 'voice_first' | 'random'
+                    condition_order: 'control_first',    // 'control_first' | 'orthogonal_first' | 'random'
+                    phoneme_control_pair: 'buff-puff',   // 'bad-pad' | 'buff-puff' | 'beach-peach' | 'bill-pill' | 'random'
+                    phoneme_control_talker_sex: 'male',  // 'male' | 'female' | 'random'
+                    voice_control_word: 'bad',           // any of the 8 words | 'random'
+                    trial_order_seed: 1                  // same seed -> same trial order for everyone
                 },
                 timing: {
+                    warning_tone_frequency: 500,      // Hz
+                    warning_tone_duration: 100,       // ms
+                    warning_to_stimulus_delay: 500,   // ms, tone offset -> stimulus onset
                     iti: 2000,                        // ms silent interval after the response
                     response_timeout: 3000,           // ms from stimulus onset
                     error_display_duration: 1500      // ms, practice feedback only
@@ -371,14 +380,27 @@ class SpeededClassificationPopup {
         return buffer;
     }
 
+    // Seeded generator (mulberry32) used for every ordering decision, so the
+    // same seed gives every participant the identical trial sequence.
+    seedRandom(seed) {
+        let state = seed >>> 0;
+        this.random = () => {
+            state = (state + 0x6D2B79F5) >>> 0;
+            let t = state;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
     pickRandom(items) {
-        return items[Math.floor(Math.random() * items.length)];
+        return items[Math.floor(this.random() * items.length)];
     }
 
     shuffle(items) {
         const array = [...items];
         for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(this.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
@@ -506,13 +528,15 @@ class SpeededClassificationPopup {
             ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>B</strong> key (or click B) for words starting with B.\nPress the <strong>P</strong> key (or click P) for words starting with P.'
             : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>M</strong> key (or click Male) for a male voice.\nPress the <strong>F</strong> key (or click Female) for a female voice.';
         const tail = isPractice
-            ? `\n\nRespond as quickly and accurately as possible after each word.\nYou will first do ${practiceCount} practice trials with feedback.`
+            ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first do ${practiceCount} practice trials with feedback.`
             : '\n\nThe practice is over. Respond as quickly and accurately as possible.\nNo feedback will be provided.';
         return task + tail;
     }
 
     setupExperimentalPhases() {
         const trialParams = this.config.parameters.trials;
+        const seed = parseInt(this.config.parameters.counterbalancing.trial_order_seed, 10);
+        this.seedRandom(isNaN(seed) ? 1 : seed);
         const cb = this.resolveCounterbalancing();
         this.counterbalancing = cb;
         this.phases = [];
@@ -655,7 +679,7 @@ class SpeededClassificationPopup {
                     <div class="task-welcome">
                         <h3>Welcome to the Speeded Classification Task</h3>
                         <p>You will hear spoken words. In each block you will classify every word either by its first sound (B or P) or by the speaker's voice (male or female).</p>
-                        <p>Respond to each word as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
+                        <p>Each trial starts with a short beep, followed half a second later by the word. Respond as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
                         <p>This task has ${this.phases.filter(p => !p.isPractice).length} blocks (${totalTrials} trials in total, including practice).</p>
                         ${this.renderMissingAudioWarning()}
                         ${this.renderCounterbalancingControls()}
@@ -664,7 +688,7 @@ class SpeededClassificationPopup {
                                 🔊 Test Audio
                             </button>
                             <p style="font-size: 14px; color: #6e6e73; margin-top: 8px;">
-                                Checks each audio output with a beep, then plays a word
+                                Checks each audio output with a beep, then plays the warning beep and a word
                             </p>
                             <div class="oats-audio-check-result" id="audio-check-result" hidden></div>
                         </div>
@@ -1095,8 +1119,8 @@ class SpeededClassificationPopup {
         });
     }
 
-    // Plays one real stimulus so the experimenter can check presentation
-    // level before starting.
+    // Plays the warning tone followed by one real stimulus so the
+    // experimenter can check presentation level before starting.
     async testAudio() {
         const sample = this.stimulusList.find(s => !this.missingAudio.includes(s.stimulus_id)) || this.stimulusList[0];
         try {
@@ -1106,7 +1130,7 @@ class SpeededClassificationPopup {
                 button: document.getElementById('audio-test-btn'),
                 resultEl: document.getElementById('audio-check-result'),
                 revealAfter: document.getElementById('begin-task-btn'),
-                sampleLabel: 'a word',
+                sampleLabel: 'warning beep and a word',
                 playSample: async () => {
                     const playback = await this.startTrialAudio(sample);
                     await playback.ended;
@@ -1246,8 +1270,8 @@ class SpeededClassificationPopup {
         // Clear the previous trial's button highlight before the next word
         taskStage.querySelectorAll('.response-button.clicked').forEach(btn => btn.classList.remove('clicked'));
 
-        // Schedules the stimulus; returns its onset (performance.now() clock)
-        // and a promise for playback end.
+        // Schedules warning tone -> delay -> stimulus; returns the stimulus
+        // onset (performance.now() clock) and a promise for playback end.
         const playback = await this.startTrialAudio(stimulus);
 
         // Responses are collected from stimulus onset, as in the paper
@@ -1287,24 +1311,25 @@ class SpeededClassificationPopup {
         
         this.results.push(trialResult);
 
-        // Let the word finish before the silent interval starts
-        await Promise.race([playback.ended, this.wait(5000)]);
-        // An output underrun while the word played shifts the onset
-        trialResult.timing_reliable = playback.timingReliable;
+        // An output underrun while the tone or word played shifts the onset
+        playback.ended.then(() => { trialResult.timing_reliable = playback.timingReliable; });
         
-        // Feedback on practice trials only (none on test trials)
+        // 2-s silent interval from the response (or the 3-s deadline) to the
+        // next warning tone. Practice feedback is shown during it (none on
+        // test trials).
+        const interval = this.wait(this.config.parameters.timing.iti);
         if (this.currentPhase.isPractice) {
             await this.showFeedback(trialResult);
         }
-        
-        // 2-s silent interval before the next word
-        await this.wait(this.config.parameters.timing.iti);
+        await interval;
     }
 
-    // ASIO: the word goes out on the Audio Setup output channels and its
-    // onset comes from the interface's own clock (known before the word is
-    // heard, so responses are timed from true word onset).
+    // ASIO: warning tone, silent gap and word go out as one continuous sound
+    // on the Audio Setup output channels, so the tone-to-word gap is sample-exact
+    // and the word onset comes from the interface's own clock (known before
+    // the word is heard, so responses are timed from true word onset).
     async startTrialAudioAsio(stimulus) {
+        const timing = this.config.parameters.timing;
         const engine = this.asioEngine;
         const filePath = this.audioFilePaths[stimulus.stimulus_id];
         const buffer = this.audioBuffers[stimulus.stimulus_id];
@@ -1319,18 +1344,22 @@ class SpeededClassificationPopup {
 
         let onStarted;
         const started = new Promise((resolve) => { onStarted = resolve; });
-        const played = engine.playSequence([word], {
+        const played = engine.playSequence([
+            { toneHz: timing.warning_tone_frequency, durationMs: timing.warning_tone_duration, level: 0.3, rampMs: 5 },
+            { silenceMs: timing.warning_to_stimulus_delay },
+            word
+        ], {
             volume: this.config.parameters.audio.volume,
             onStart: onStarted
         });
 
         const first = await Promise.race([started, played, this.wait(2000).then(() => null)]);
-        if (!first || first.cancelled || first.partOnsetPerfMs[0] == null) {
+        if (!first || first.cancelled || first.partOnsetPerfMs[2] == null) {
             engine.clearOutputQueue();
             throw new Error('ASIO did not start playback');
         }
 
-        const playback = { onsetPerf: first.partOnsetPerfMs[0], backend: 'ASIO', timingReliable: true };
+        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
         playback.ended = played.then((result) => {
             playback.timingReliable = !result.cancelled && result.timingReliable !== false;
             return result;
@@ -1352,7 +1381,10 @@ class SpeededClassificationPopup {
     }
 
     async startTrialAudio(stimulus) {
+        const timing = this.config.parameters.timing;
         const volume = this.config.parameters.audio.volume;
+        const toneSec = timing.warning_tone_duration / 1000;
+        const delaySec = timing.warning_to_stimulus_delay / 1000;
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             try {
                 return await this.startTrialAudioAsio(stimulus);
@@ -1362,15 +1394,32 @@ class SpeededClassificationPopup {
         }
 
         if (!this.audioContext) {
+            await this.wait(timing.warning_tone_duration + timing.warning_to_stimulus_delay);
             return { onsetPerf: performance.now(), ended: this.wait(500), backend: 'none', timingReliable: false };
         }
 
         const ctx = this.audioContext;
         if (ctx.state === 'suspended') await ctx.resume();
 
-        // Scheduled slightly ahead on the audio clock so the onset time is
-        // known exactly.
-        const stimulusStart = ctx.currentTime + 0.05;
+        // Everything is scheduled on the audio clock so the
+        // tone-to-stimulus interval is sample-accurate.
+        const toneStart = ctx.currentTime + 0.05;
+        const toneEnd = toneStart + toneSec;
+        const stimulusStart = toneEnd + delaySec;
+
+        const oscillator = ctx.createOscillator();
+        const toneGain = ctx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = timing.warning_tone_frequency;
+        oscillator.connect(toneGain);
+        toneGain.connect(ctx.destination);
+        const toneLevel = volume * 0.3;
+        toneGain.gain.setValueAtTime(0, toneStart);
+        toneGain.gain.linearRampToValueAtTime(toneLevel, toneStart + 0.005);
+        toneGain.gain.setValueAtTime(toneLevel, Math.max(toneStart + 0.005, toneEnd - 0.005));
+        toneGain.gain.linearRampToValueAtTime(0, toneEnd);
+        oscillator.start(toneStart);
+        oscillator.stop(toneEnd + 0.01);
 
         let ended;
         const buffer = this.audioBuffers[stimulus.stimulus_id];
@@ -1499,7 +1548,9 @@ class SpeededClassificationPopup {
         
         if (!slot) return;
         slot.innerHTML = feedbackHTML;
-        await this.wait(this.config.parameters.timing.error_display_duration);
+        // Shown within the inter-trial interval, so it never delays the next trial
+        const timing = this.config.parameters.timing;
+        await this.wait(Math.min(timing.error_display_duration, timing.iti));
         slot.innerHTML = '';
     }
 
@@ -1568,7 +1619,8 @@ class SpeededClassificationPopup {
     }
 
     // RT summary for one condition: no-response trials and errors are
-    // excluded, then RTs more than 2 SD from the condition mean are trimmed.
+    // excluded, then RTs exceeding the condition mean by more than 2 SD are
+    // trimmed (paper: "RTs exceeding two standard deviations of the mean").
     // Trimmed trials are flagged on the trial records (rt_outlier).
     summarizeCondition(trials) {
         const total = trials.length;
@@ -1582,7 +1634,7 @@ class SpeededClassificationPopup {
         trials.forEach(t => { t.rt_outlier = false; });
         const kept = [];
         rtTrials.forEach(t => {
-            if (sd !== null && Math.abs(t.reaction_time - m) > 2 * sd) {
+            if (sd !== null && t.reaction_time - m > 2 * sd) {
                 t.rt_outlier = true;
             } else {
                 kept.push(t.reaction_time);
@@ -1731,6 +1783,7 @@ class SpeededClassificationPopup {
         content += `Condition Order (within each dimension): ${cb.condition_order.join(' -> ')}\n`;
         content += `Phoneme-relevant Control Pair: ${cb.phoneme_control_pair} (${cb.phoneme_control_talker_sex} talkers)\n`;
         content += `Voice-relevant Control Word: ${cb.voice_control_word} (all 8 talkers)\n`;
+        content += `Trial Order Seed: ${this.config.parameters.counterbalancing.trial_order_seed} (same seed = same trial order for every participant)\n`;
         content += `Requested Settings: ${JSON.stringify(cb.requested)}\n\n`;
         
         // Configuration
@@ -1740,6 +1793,8 @@ class SpeededClassificationPopup {
         content += `Practice Trials per Condition: ${config.trials.practice_per_condition}\n`;
         content += `Control Repetitions per Stimulus: ${config.trials.control_repetitions}\n`;
         content += `Orthogonal Repetitions per Stimulus: ${config.trials.orthogonal_repetitions}\n`;
+        content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
+        content += `Warning Tone -> Stimulus Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from stimulus onset): ${config.timing.response_timeout}ms\n`;
         content += `Silent Interval after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
@@ -1754,7 +1809,7 @@ class SpeededClassificationPopup {
         content += 'GARNER INTERFERENCE (test trials only)\n';
         content += '-'.repeat(60) + '\n';
         content += 'RTs from correct trials, measured from stimulus onset; no-response\n';
-        content += 'trials excluded; RTs > 2 SD from each condition mean removed.\n';
+        content += 'trials excluded; RTs more than 2 SD above each condition mean removed.\n';
         content += 'Interference = orthogonal RT - control RT.\n\n';
         content += 'Dimension        | Control M (SD)      | Orthogonal M (SD)   | Interference | % Increase\n';
         content += '-'.repeat(90) + '\n';
